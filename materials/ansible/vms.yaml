@@ -1,0 +1,24 @@
+- name: Start a playbook
+  hosts: all
+  become: yes
+  tasks:
+    - name: install zabbix
+      ansible.builtin.apt:
+        name: "{{ item }}"
+        state: latest
+      loop: 
+            - zabbix-server-pgsql
+            - zabbix-frontend-php
+            - php-pgsql
+
+    - name: set MAC lables
+      ansible.builtin.shell: |
+        pdpl-user -i 63 postgres &&
+        pdpl-user -l 0:0 zabbix &&
+        usermod -aG shadow postgres
+
+    - name: set ACL
+      ansible.posix.acl:
+        path: /etc/parsec/macdb
+        entity: postgres
+        permissions: rx

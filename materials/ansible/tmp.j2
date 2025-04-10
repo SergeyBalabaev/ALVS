@@ -1,0 +1,12 @@
+My name is {{ ansible_facts['hostname'] }}
+
+{% if ansible_facts['hostname']  == 'server' %}
+Welcome, server!
+You have full access to the system.
+{% elif user_type == 'user' %}
+Welcome, User!
+You have limited access to the system.
+{% else %}
+Welcome, Guest!
+You have read-only access to the system.
+{% endif %}

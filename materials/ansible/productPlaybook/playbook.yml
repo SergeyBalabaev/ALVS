@@ -1,0 +1,64 @@
+---
+- name: Provision host
+  hosts: server.mpsu.stu
+  become: true
+  vars_files:
+    - ./vars.yml
+
+  pre_tasks:
+    - name: Set hostname on your provisioned server
+      block:
+        - name: Set static hostname
+          ansible.builtin.hostname:
+            name: "{{ inventory_hostname_short }}"
+
+        - name: Add FQDN to /etc/hosts
+          ansible.builtin.lineinfile:
+            dest: /etc/hosts
+            regexp: '^127\.0\.1\.1'
+            line: "127.0.1.1 {{ inventory_hostname }} {{ inventory_hostname_short }}"
+  roles:
+    - dns
+  #  - web
+
+  post_tasks:
+    - name: set new dns server on localhost
+      ansible.builtin.lineinfile:
+        path: /etc/resolv.conf
+        line: "nameserver {{ ansible_host }}"
+        insertafter: '^search*'
+        state: present
+      delegate_to: localhost
+      tags: [ never, my_dns ]
+
+    - name: Correct resolv.conf
+      ansible.builtin.template:
+        src: "roles/dns/templates/{{ item }}"
+        dest: "/etc/resolv.conf"
+        owner: root
+        group: bind
+        mode: 0666
+      loop:
+        - resolv.conf.j2
+      tags: [ never, my_dns ]
+
+    # - name: set new dns server on server
+    #   ansible.builtin.blockinfile:
+    #     path: /etc/resolv.conf
+    #     block: |
+    #       search {{ domain_zone }}
+    #       nameserver {{ ansible_host }}
+    #     state: present
+    #   tags: [ never, my_dns ]
+
+
+    - name: unset new dns server on localhost
+      ansible.builtin.lineinfile:
+        path: /etc/resolv.conf
+        line: "nameserver {{ ansible_host }}"
+        state: absent
+      delegate_to: localhost
+      tags: [ never, default_dns ]
+    #- name: check nginx working correctly
+
+

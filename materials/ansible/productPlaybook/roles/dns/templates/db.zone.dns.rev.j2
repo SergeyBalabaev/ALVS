@@ -1,0 +1,20 @@
+$TTL 3600
+$ORIGIN {{ network.split('.0')[0].split('.')[-1::-1] | join('.') }}.in-addr.arpa.
+@               IN      SOA     {{ host }}.{{ domain_zone }}. root.{{ domain_zone }}. (
+                            2711201407 ; serial
+                            3600       ; refresh (1 hour)
+                            600        ; retry (10 minutes)
+                            86400      ; expire (1 day)
+                            600        ; minimum (10 minutes)
+                        )
+
+                IN      NS      {{ host }}.{{ domain_zone }}.
+
+{{ ip_address.split(network.split('.0')[0]+'.')[1] }}             IN      PTR    {{ host }}.{{ domain_zone }}.
+{% if dns_records is defined  %}
+{% for dict_item in dns_records %}
+{% if dict_item['type'] == 'A' %}
+{{ dict_item['value'].split(network.split('.0')[0]+'.')[1] }}         IN         PTR       {{ dict_item['host'] }}.{{ domain_zone }}.
+{% endif %}
+{% endfor %}
+{% endif %}

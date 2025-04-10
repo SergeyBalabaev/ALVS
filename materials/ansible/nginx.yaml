@@ -1,0 +1,33 @@
+- name: Start a playbook
+  hosts: all
+  become: no
+  tasks:
+    - name: copy file
+      ansible.builtin.copy:
+        src: ./test
+        dest: ~/pattern
+
+    - name: add block
+      ansible.builtin.blockinfile:
+        path: ~/pattern
+        block: |
+          HOSTNAME:MPSU
+          IP:192.168.11.1
+        marker: ""
+
+    - name: correct file
+      ansible.builtin.blockinfile:
+        path: ~/pattern
+        block: |
+              тут много разного текста
+              несколько строк текста
+              и на русском
+
+        marker: ""
+        insertafter: '^HOSTNAME'
+
+    - name: correct line
+      ansible.builtin.lineinfile:
+        path: ~/pattern
+        line: "IP:10.10.10.0"
+        regexp: ^IP

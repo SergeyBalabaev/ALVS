@@ -1,0 +1,23 @@
+$TTL 3600
+$ORIGIN {{ domain_zone }}.
+@               IN      SOA {{ host }}.{{ domain_zone }}. root.{{ domain_zone }}. (
+                            2711201408 ; serial
+                            3600       ; refresh (1 hour)
+                            600        ; retry (10 minutes)
+                            86400      ; expire (1 day)
+                            600        ; minimum (10 minutes)
+                        )
+
+                IN      NS      {{ host }}.{{ domain_zone }}.
+
+; DNS Servers
+{{ host }}      IN      A      {{ ip_address }}
+
+; Web servers and etc
+{% if dns_records is defined  %}
+{% for dict_item in dns_records %}
+{{ dict_item['host'] }}           IN      {{ dict_item['type'] }}     {{ dict_item['value'] }}
+{% endfor %}
+{% endif %}
+
+

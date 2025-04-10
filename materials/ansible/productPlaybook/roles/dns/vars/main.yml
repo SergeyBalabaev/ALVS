@@ -1,0 +1,9 @@
+---
+host: "{{ inventory_hostname_short }}"
+dns_records:
+   - { host: 'web1', type: 'CNAME', value: "{{ inventory_hostname }}." }
+   - { host: 'web2', type: 'CNAME', value: "{{ inventory_hostname }}." }
+domain_zone: "{{ inventory_hostname.split('.')[1::] | join('.') }}"
+ip_address: "{{ ansible_default_ipv4.address }}"
+network: "{{ ansible_default_ipv4.network }}"
+service_name: bind9

@@ -1,0 +1,7 @@
+domain {{ domain_zone }}
+search {{ domain_zone }}
+{% if inventory_hostname == 'server.mpsu.stu' %}
+nameserver {{ ip_address }}
+{% else %}
+nameserver 127.0.0.1
+{% endif %}

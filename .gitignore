@@ -1,3 +1,4 @@
 .vscode
 *.pptx
 *.docx
+materials/ansible/productPlaybook/roles/web

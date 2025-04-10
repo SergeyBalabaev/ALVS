@@ -1,0 +1,8 @@
+- name: Template managment
+  hosts: all
+  become: no
+  tasks:
+    - name: write hostname using jinja2
+      ansible.builtin.template:
+        src: templates/tmp.j2
+        dest: ~/hostname

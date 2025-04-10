@@ -1,0 +1,21 @@
+- name: User managment
+  hosts: all
+  become: yes
+  tasks:
+    - name: Add the user 'krosh'
+      ansible.builtin.user:
+        name: krosh
+        password: qwerty22
+        create_home: yes
+        comment: first smesharik
+        shell: /bin/bash
+
+    - name: set MAC lables
+      ansible.builtin.shell: 
+        pdpl-user -i 63 krosh 
+
+    # - name: Delete the user 'krosh'
+    #   ansible.builtin.user:
+    #     name: krosh
+    #     state: absent
+    #     remove: yes

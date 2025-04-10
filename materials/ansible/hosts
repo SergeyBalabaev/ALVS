@@ -1,0 +1,2 @@
+[server]
+192.168.122.2 ansible_become_pass=qwerty22

@@ -1,0 +1,5 @@
+---
+- name: restart bind
+  service:
+    name: "{{ service_name }}" #bind9
+    state: restarted
