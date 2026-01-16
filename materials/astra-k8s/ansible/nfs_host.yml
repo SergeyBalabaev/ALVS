@@ -1,0 +1,33 @@
+- name: Setup NFS server on Ansible host server
+  hosts: localhost
+  become: true
+
+  tasks:
+    - name: Install NFSv4 server
+      ansible.builtin.apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: true
+      loop:
+        - nfs-kernel-server
+
+    - name: Create a directory for export
+      ansible.builtin.file:
+        path: /srv/nfs_share
+        state: directory
+        owner: nobody
+        group: nogroup
+        mode: '0777'
+
+    - name: Add thisdirectory to the NFS exports configuration
+      ansible.builtin.lineinfile:
+        path: /etc/exports
+        line: '/srv/nfs_share 192.168.122.0/255.255.255.0(rw,sync,no_subtree_check,no_root_squash)'
+      notify:
+        - apply & restart NFS
+  
+  handlers:
+    - name: apply & restart NFS
+      ansible.builtin.shell: |
+        set -euo pipefail
+        exportfs -a && systemctl restart nfs-kernel-server

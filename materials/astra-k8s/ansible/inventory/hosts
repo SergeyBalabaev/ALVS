@@ -1,0 +1,15 @@
+[ansible_hosts]
+localhost ansible_connection=local ansible_user=student ansible_become_pass=qwerty22
+
+[k8s:children]
+masters
+workers
+[k8s:vars]
+ansible_user=adminstd
+ansible_become_pass=qwerty22
+[masters]
+k8s-master.dns.lab ansible_host=192.168.122.117
+[workers]
+worker1.dns.lab ansible_host=192.168.122.216
+worker2.dns.lab ansible_host=192.168.122.32
+

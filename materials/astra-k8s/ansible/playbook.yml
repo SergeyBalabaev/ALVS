@@ -1,0 +1,259 @@
+---
+- name: Provision k8s nodes
+  hosts: k8s
+  become: true
+  vars:
+    os_release: "debian bookworm"
+    k8s_version: '1.31'
+
+  pre_tasks:
+    - name: Set hostname on your provisioned server
+      block:
+        - name: Set hostname
+          ansible.builtin.hostname:
+            name: "{{ inventory_hostname_short }}"
+
+        - name: Add FQDN to /etc/hosts
+          ansible.builtin.lineinfile:
+            dest: /etc/hosts
+            regexp: '^127\.0\.1\.1'
+            line: "127.0.1.1 {{ inventory_hostname }} {{ inventory_hostname_short }}"
+        
+        - name: Populate service facts
+          ansible.builtin.service_facts:
+
+    #- name: 1. Upgrade All the Packages to the latest
+    #  ansible.builtin.apt:
+    #    upgrade: "full"
+
+  tasks:
+    # - name: Disable swap
+    #   ansible.builtin.shell: |
+    #     swapoff -a
+    #   when: ansible_swaptotal_mb > 0
+
+    # - name: Disable swap mounting in fstab
+    #   ansible.builtin.replace:
+    #     path: /etc/fstab
+    #     regexp: '(^/.*swap.*)' #'^([^#].*?\sswap\s+sw\s+.*)$'
+    #     replace: '#\1'
+
+    - name: Add auto load for kernel modules needed by containerd
+      ansible.builtin.blockinfile:
+        path: /etc/modules-load.d/containerd.conf
+        create: true
+        block: |
+          overlay
+          br_netfilter
+
+    - name: Load this kernel modules immediately
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Configure kernel parameters for Kubernetes
+      ansible.posix.sysctl:
+        sysctl_file: /etc/sysctl.d/99-k8s.conf
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        sysctl_set: true
+        state: present
+        reload: true
+      loop:
+        - { key: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+        - { key: 'net.ipv4.ip_forward', value: '1' }
+        - { key: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+
+    - name: Install required packages
+      ansible.builtin.apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: true
+      loop:
+        - socat
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - gpg
+        - git
+        - bash-completion
+
+    - name: Add Docker repo key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/debian/gpg
+        dest: /etc/apt/keyrings/docker-apt-keyring.asc
+        mode: "0644"
+        force: true
+
+    - name: Add Docker APT repo
+      ansible.builtin.apt_repository:
+        repo: "deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }} signed-by=/etc/apt/keyrings/docker-apt-keyring.asc] https://download.docker.com/linux/{{ os_release }} stable"
+        state: present
+        update_cache: yes
+
+    - name: Install containerd as k8s container runtime
+      apt:
+        name: containerd.io
+        state: present
+
+    - name: Enable the containerd service
+      ansible.builtin.service:
+        name: containerd 
+        enabled: yes
+
+    # - name: Prompt To Continue On To Configuring Worker Nodes
+    #   ansible.builtin.pause:
+    #     prompt: Press RETURN when you want to continue 
+
+    - name: Create default containerd configuration
+      ansible.builtin.shell: |
+        set -euo pipefail
+        /usr/bin/containerd config default | tee /etc/containerd/config.toml
+
+    - name: Customize created containerd configuration
+      ansible.builtin.replace:
+        path: /etc/containerd/config.toml
+        regexp: "{{ item.old }}"
+        replace: "{{ item.new }}"
+      loop:
+        - { old: 'SystemdCgroup = false', new: 'SystemdCgroup = true'}
+        - { old: 'registry.k8s.io/pause:3.8', new: 'registry.k8s.io/pause:3.10'}
+        #- { old: 'systemd_cgroup = false', new: 'systemd_cgroup = true'}
+      notify:
+        - restart containerd
+    
+    - name: Add Kubernetes repo apt-key
+      ansible.builtin.get_url:
+        url: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/deb/Release.key"
+        dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+        mode: "0644"
+        force: true
+
+    - name: Add Kubernetes APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/deb/ /"
+        state: present
+        update_cache: yes
+
+    - name: Install k8s packages
+      ansible.builtin.apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: true
+      loop:
+        - "kubectl={{ k8s_version }}.*"
+        - "kubelet={{ k8s_version }}.*"
+        - "kubeadm={{ k8s_version }}.*"
+
+    - name: Hold k8s pkgs to update
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubectl
+        - kubelet
+        - kubeadm
+      notify:
+        - restart kubelet
+
+    - name: Enable the Kubelet service
+      ansible.builtin.service:
+        name: kubelet
+        enabled: yes
+
+    # - name: Reboot
+    #   run_once: true
+    #   reboot:
+    - name: Configure master node
+      block:
+      - name: Create k8s cluster init config for kubeadm
+        ansible.builtin.blockinfile:
+          path: /etc/kubernetes/kubeadm-config.yaml
+          create: true
+          block: |
+            apiVersion: kubeadm.k8s.io/v1beta4
+            kind: InitConfiguration
+            localAPIEndpoint:
+              advertiseAddress: "{{ ansible_ssh_host }}"
+              bindPort: 6443 #6443 - default
+            ---
+            apiVersion: kubeadm.k8s.io/v1beta4          
+            kind: ClusterConfiguration
+            controlPlaneEndpoint: "{{ ansible_ssh_host }}:6443"
+            networking:
+              serviceSubnet: "10.96.0.0/16" #10.96.0.0/16 - default
+              podSubnet: "10.244.0.0/16"
+              dnsDomain: "cluster.local" #cluster.local - default
+            clusterName: "lab8-cluster"
+            ---
+            kind: KubeletConfiguration
+            apiVersion: kubelet.config.k8s.io/v1beta1
+            cgroupDriver: "systemd"
+            failSwapOn: false
+            featureGates:
+              NodeSwap: true
+            memorySwap:
+              swapBehavior: LimitedSwap
+            ---
+            apiVersion: kubeproxy.config.k8s.io/v1alpha1
+            kind: KubeProxyConfiguration
+            mode: "ipvs" #iptables - default
+
+      - name: Create ~/k8s directory for user on master node
+        ansible.builtin.file:
+          path: "/home/{{ ansible_user }}/k8s"
+          state: directory
+          owner: "{{ ansible_user }}"
+          group: "{{ ansible_user }}"
+          #mode: 0755
+      - name: Create tigera operator customization
+        ansible.builtin.blockinfile:
+          path: "/home/{{ ansible_user }}/k8s/calico.yaml"
+          create: true
+          owner: "{{ ansible_user }}"
+          group: "{{ ansible_user }}"
+          block: |
+            kind: Installation
+            apiVersion: operator.tigera.io/v1
+            metadata:
+              name: default
+            spec:
+              calicoNetwork:
+                ipPools:
+                  - cidr: 10.244.0.0/16
+
+      - name: Setup kubectl autocomplete
+        ansible.builtin.shell: kubectl completion bash > /etc/bash_completion.d/kubectl   
+      
+      when: inventory_hostname in groups['masters']
+
+    - name: Add NetworkManager config for Calico-managed interfaces
+      ansible.builtin.blockinfile:
+        path: /etc/NetworkManager/conf.d/calico.conf
+        create: true
+        block: |
+          [keyfile]
+          unmanaged-devices=interface-name:cali*;interface-name:tunl*;interface-name:vxlan.calico;interface-name:vxlan-v6.calico;interface-name:wireguard.cali;interface-name:wg-v6.cali
+      when: ansible_facts['services']['NetworkManager.service']['state'] | default(false) == 'running'
+      notify:
+        - restart NetworkManager
+
+  handlers:
+    - name: restart containerd
+      ansible.builtin.service:
+        name: containerd
+        state: restarted
+        daemon-reload: yes
+
+    - name: restart NetworkManager
+      ansible.builtin.service:
+        name: NetworkManager
+        state: restarted
+
+    - name: restart kubelet
+      ansible.builtin.service:
+        name: kubelet
+        state: restarted
